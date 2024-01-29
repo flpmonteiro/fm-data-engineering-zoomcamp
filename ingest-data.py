@@ -1,66 +1,39 @@
 #!/usr/bin/env python
 # coding: utf-8
-
-import os
 import argparse
-
+import os
 from time import time
-
+import requests
 import pandas as pd
 from sqlalchemy import create_engine
 
+def download_file(url, filename):
+    response = requests.get(url)
+    response.raise_for_status()
+    with open(filename, 'wb') as file:
+        file.write(response.content)
+        
+def convert_dates(df, columns):
+    for col in columns:
+        df[col] = pd.to_datetime(df[col])
+    return df
 
 def main(params):
-    user = params.user
-    password = params.password
-    host = params.host
-    port = params.port
-    db = params.db
-    table_name = params.table_name
-    url = params.url
+    filename = 'output.csv.gz' if params.url.endswith('.csv.gz') else 'output.csv'
+    download_file(params.url, filename)
 
-    # the backup files are gzipped, and it's important to keep the correct extension
-    # for pandas to be able to open the file
-    if url.endswith('.csv.gz'):
-        csv_name = 'output.csv.gz'
-    else:
-        csv_name = 'output.csv'
+    engine = create_engine(f'postgresql://{params.user}:{params.password}@{params.host}:{params.port}/{params.db}')
+    
+    first_chunk = True
+    
+    with pd.read_csv(filename, iterator=True, chunksize=100000) as df_iter:
+        for df in df_iter:
+            df = convert_dates(df, ['tpep_pickup_datetime', 'tpep_dropoff_datetime'])
+            if first_chunk:
+                df.head(0).to_sql(name=params.table_name, con=engine, if_exists='replace')
+                first_chunk = False
+            df.to_sql(name=params.table_name, con=engine, if_exists='append')
 
-    os.system(f"wget {url} -O {csv_name}")
-
-    engine = create_engine(f'postgresql://{user}:{password}@{host}:{port}/{db}')
-
-    df_iter = pd.read_csv(csv_name, iterator=True, chunksize=100000)
-
-    df = next(df_iter)
-
-    df.tpep_pickup_datetime = pd.to_datetime(df.tpep_pickup_datetime)
-    df.tpep_dropoff_datetime = pd.to_datetime(df.tpep_dropoff_datetime)
-
-    df.head(n=0).to_sql(name=table_name, con=engine, if_exists='replace')
-
-    df.to_sql(name=table_name, con=engine, if_exists='append')
-
-
-    while True:
-
-        try:
-            t_start = time()
-
-            df = next(df_iter)
-
-            df.tpep_pickup_datetime = pd.to_datetime(df.tpep_pickup_datetime)
-            df.tpep_dropoff_datetime = pd.to_datetime(df.tpep_dropoff_datetime)
-
-            df.to_sql(name=table_name, con=engine, if_exists='append')
-
-            t_end = time()
-
-            print('inserted another chunk, took %.3f second' % (t_end - t_start))
-
-        except StopIteration:
-            print("Finished ingesting data into the postgres database")
-            break
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Ingest CSV data to Postgres')
