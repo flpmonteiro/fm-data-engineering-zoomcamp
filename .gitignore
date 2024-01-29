@@ -1,4 +1,5 @@
 *.csv
+*.csv.gz
 
 # Local .terraform directories
 **/.terraform/*
