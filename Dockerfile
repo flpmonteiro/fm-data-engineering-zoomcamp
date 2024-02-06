@@ -1,9 +1,9 @@
-FROM python
+FROM mageai/mageai:latest
 
-RUN apt-get install wget
-RUN pip install pandas sqlalchemy psycopg2
+ARG USER_CODE_PATH=/home/src/${PROJECT_NAME}
 
-WORKDIR /app
-COPY ingest_data.py ingest_data.py
+# Note: this overwrites the requirements.txt file in your new project on first run. 
+# You can delete this line for the second run :) 
+COPY requirements.txt ${USER_CODE_PATH}requirements.txt 
 
-ENTRYPOINT [ "python", "ingest_data.py" ]
+RUN pip3 install -r ${USER_CODE_PATH}requirements.txt
